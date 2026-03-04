@@ -1,0 +1,34 @@
+{
+  "name": "@pageforge/web",
+  "version": "0.0.1",
+  "private": true,
+  "description": "PageForge demo app and documentation",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@pageforge/core": "workspace:*",
+    "@pageforge/editor": "workspace:*",
+    "@pageforge/renderer": "workspace:*",
+    "@pageforge/components": "workspace:*",
+    "@pageforge/sdk": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  },
+  "license": "MIT"
+}
