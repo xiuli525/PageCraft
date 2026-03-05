@@ -54,10 +54,16 @@ export interface ComponentDefinition {
 export type EditorMode = 'design' | 'preview'
 export type EditorViewport = 'desktop' | 'tablet' | 'mobile'
 
+/** Map from component type string to React component that renders it */
+export type ComponentRendererMap = Map<string, React.ComponentType<Record<string, unknown>>>
+
 export interface EditorConfig {
   initialDocument: PageDocument
   componentDefinitions: ComponentDefinition[]
+  /** React components keyed by type name (e.g. 'Text' → TextComponent) */
+  componentRenderers?: ComponentRendererMap
   onChange?: (document: PageDocument) => void
+  onSave?: (document: PageDocument) => void
 }
 
 export interface PanelState {
@@ -79,6 +85,8 @@ export interface EditorActions {
   undo: () => void
   redo: () => void
   save: () => void
+  copySelected: () => void
+  pasteNodes: (targetParentId: NodeId) => void
 }
 
 export interface EditorState {
@@ -90,6 +98,9 @@ export interface EditorState {
   zoom: number
   panels: PanelState
   componentMap: Record<string, ComponentDefinition>
+  componentRenderers: ComponentRendererMap
+  canUndo: boolean
+  canRedo: boolean
 }
 
 export interface EditorContextValue extends EditorState {

@@ -1,5 +1,6 @@
 import React from 'react'
 import { useEditor } from '../editor/EditorProvider'
+import { exportToHtml } from '../utils/export-html'
 import type { EditorViewport } from '../types'
 
 const viewportOptions: Array<{ value: EditorViewport; label: string; width: string }> = [
@@ -33,7 +34,7 @@ const activeBtnStyle: React.CSSProperties = {
 }
 
 export const Toolbar: React.FC = () => {
-  const { mode, viewport, zoom, actions } = useEditor()
+  const { mode, viewport, zoom, actions, selectedNodeIds, document } = useEditor()
 
   return (
     <div
@@ -54,6 +55,19 @@ export const Toolbar: React.FC = () => {
         </button>
         <button style={btnStyle} onClick={actions.redo} title="Redo (Ctrl+Shift+Z)">
           ↪
+        </button>
+        <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
+        <button
+          style={
+            selectedNodeIds.length === 0
+              ? { ...btnStyle, opacity: 0.4, cursor: 'not-allowed' }
+              : btnStyle
+          }
+          onClick={() => selectedNodeIds.forEach((id) => actions.removeNode(id))}
+          disabled={selectedNodeIds.length === 0}
+          title="Delete (Del)"
+        >
+          🗑
         </button>
       </div>
 
@@ -96,6 +110,10 @@ export const Toolbar: React.FC = () => {
           onClick={() => actions.setMode(mode === 'design' ? 'preview' : 'design')}
         >
           {mode === 'design' ? '👁 Preview' : '✏ Design'}
+        </button>
+
+        <button style={btnStyle} onClick={() => exportToHtml(document)} title="Export HTML">
+          📤 Export
         </button>
 
         <button

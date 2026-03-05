@@ -1,84 +1,35 @@
-import React, { createContext, useContext, useReducer, useCallback } from 'react'
-import {
+import React, { createContext, useContext, useMemo, useCallback, useSyncExternalStore } from 'react'
+import { createDocumentStore } from '@pageforge/core'
+import type {
   EditorState,
   EditorActions,
   EditorContextValue,
   EditorConfig,
-  PageDocument,
   NodeId,
   EditorMode,
   EditorViewport,
   PanelState,
   PageNode,
   ComponentDefinition,
+  ComponentRendererMap,
 } from '../types'
 
-const initialState: Omit<EditorState, 'document' | 'componentMap'> = {
-  selectedNodeIds: [],
-  hoveredNodeId: null,
-  mode: 'design',
-  viewport: 'desktop',
-  zoom: 1,
-  panels: {
-    isLeftCollapsed: false,
-    isRightCollapsed: false,
-  },
+interface UIState {
+  mode: EditorMode
+  viewport: EditorViewport
+  zoom: number
+  panels: PanelState
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null)
-
-type Action =
-  | { type: 'SELECT_NODE'; nodeId: NodeId | null; append?: boolean }
-  | { type: 'HOVER_NODE'; nodeId: NodeId | null }
-  | { type: 'SET_MODE'; mode: EditorMode }
-  | { type: 'SET_VIEWPORT'; viewport: EditorViewport }
-  | { type: 'SET_ZOOM'; zoom: number }
-  | { type: 'TOGGLE_PANEL'; panel: keyof PanelState }
-  | { type: 'UPDATE_DOCUMENT'; document: PageDocument }
-
-function editorReducer(state: EditorState, action: Action): EditorState {
-  switch (action.type) {
-    case 'SELECT_NODE':
-      if (action.append && action.nodeId) {
-        return {
-          ...state,
-          selectedNodeIds: state.selectedNodeIds.includes(action.nodeId)
-            ? state.selectedNodeIds.filter((id) => id !== action.nodeId)
-            : [...state.selectedNodeIds, action.nodeId],
-        }
-      }
-      return {
-        ...state,
-        selectedNodeIds: action.nodeId ? [action.nodeId] : [],
-      }
-    case 'HOVER_NODE':
-      return { ...state, hoveredNodeId: action.nodeId }
-    case 'SET_MODE':
-      return { ...state, mode: action.mode }
-    case 'SET_VIEWPORT':
-      return { ...state, viewport: action.viewport }
-    case 'SET_ZOOM':
-      return { ...state, zoom: action.zoom }
-    case 'TOGGLE_PANEL':
-      return {
-        ...state,
-        panels: {
-          ...state.panels,
-          [action.panel]: !state.panels[action.panel],
-        },
-      }
-    case 'UPDATE_DOCUMENT':
-      return { ...state, document: action.document }
-    default:
-      return state
-  }
-}
 
 export const EditorProvider: React.FC<{
   config: EditorConfig
   children: React.ReactNode
 }> = ({ config, children }) => {
-  const componentMap = React.useMemo(() => {
+  const store = useMemo(() => createDocumentStore(config.initialDocument), [config.initialDocument])
+
+  const componentMap = useMemo(() => {
     return config.componentDefinitions.reduce(
       (acc: Record<string, ComponentDefinition>, def: ComponentDefinition) => {
         acc[def.type] = def
@@ -88,101 +39,119 @@ export const EditorProvider: React.FC<{
     )
   }, [config.componentDefinitions])
 
-  const [state, dispatch] = useReducer(editorReducer, {
-    ...initialState,
-    document: config.initialDocument,
-    componentMap,
+  const componentRenderers: ComponentRendererMap = useMemo(
+    () => config.componentRenderers ?? new Map(),
+    [config.componentRenderers],
+  )
+
+  const [uiState, setUIState] = React.useState<UIState>({
+    mode: 'design',
+    viewport: 'desktop',
+    zoom: 1,
+    panels: {
+      isLeftCollapsed: false,
+      isRightCollapsed: false,
+    },
   })
 
-  const actions: EditorActions = {
-    selectNode: useCallback(
-      (nodeId: NodeId | null, append?: boolean) =>
-        dispatch({ type: 'SELECT_NODE', nodeId, append }),
-      [],
-    ),
-    hoverNode: useCallback((nodeId: NodeId | null) => dispatch({ type: 'HOVER_NODE', nodeId }), []),
-    setMode: useCallback((mode: EditorMode) => dispatch({ type: 'SET_MODE', mode }), []),
-    setViewport: useCallback(
-      (viewport: EditorViewport) => dispatch({ type: 'SET_VIEWPORT', viewport }),
-      [],
-    ),
-    setZoom: useCallback((zoom: number) => dispatch({ type: 'SET_ZOOM', zoom }), []),
-    togglePanel: useCallback(
-      (panel: keyof PanelState) => dispatch({ type: 'TOGGLE_PANEL', panel }),
-      [],
-    ),
-    updateNode: useCallback(
-      (nodeId: NodeId, updates: Partial<PageNode>) => {
-        const newDoc = JSON.parse(JSON.stringify(state.document))
-        if (newDoc.nodes[nodeId]) {
-          Object.assign(newDoc.nodes[nodeId], updates)
-          dispatch({ type: 'UPDATE_DOCUMENT', document: newDoc })
-          config.onChange?.(newDoc)
-        }
+  const subscribe = useCallback((callback: () => void) => store.subscribe(callback), [store])
+
+  const getSnapshot = useCallback(() => store.getState(), [store])
+
+  const docState = useSyncExternalStore(subscribe, getSnapshot)
+
+  const actions: EditorActions = useMemo(
+    () => ({
+      selectNode: (nodeId: NodeId | null, append?: boolean) => {
+        store.getState().selectNode(nodeId, append)
       },
-      [state.document, config.onChange],
-    ),
-    addNode: useCallback(
-      (node: PageNode, parentId: NodeId, index?: number) => {
-        const newDoc = JSON.parse(JSON.stringify(state.document))
-        newDoc.nodes[node.id] = node
-        const parent = newDoc.nodes[parentId]
-        if (parent) {
-          if (typeof index === 'number') {
-            parent.children.splice(index, 0, node.id)
-          } else {
-            parent.children.push(node.id)
-          }
-          dispatch({ type: 'UPDATE_DOCUMENT', document: newDoc })
-          config.onChange?.(newDoc)
-        }
+      hoverNode: (nodeId: NodeId | null) => {
+        store.getState().hoverNode(nodeId)
       },
-      [state.document, config.onChange],
-    ),
-    removeNode: useCallback(
-      (nodeId: NodeId) => {
-        const newDoc = JSON.parse(JSON.stringify(state.document))
-        const parentId = newDoc.nodes[nodeId]?.parentId
-        if (parentId && newDoc.nodes[parentId]) {
-          newDoc.nodes[parentId].children = newDoc.nodes[parentId].children.filter(
-            (id: string) => id !== nodeId,
-          )
-        }
-        delete newDoc.nodes[nodeId]
-        dispatch({ type: 'UPDATE_DOCUMENT', document: newDoc })
+      setMode: (mode: EditorMode) => {
+        setUIState((prev) => ({ ...prev, mode }))
+      },
+      setViewport: (viewport: EditorViewport) => {
+        setUIState((prev) => ({ ...prev, viewport }))
+      },
+      setZoom: (zoom: number) => {
+        setUIState((prev) => ({ ...prev, zoom }))
+      },
+      togglePanel: (panel: keyof PanelState) => {
+        setUIState((prev) => ({
+          ...prev,
+          panels: { ...prev.panels, [panel]: !prev.panels[panel] },
+        }))
+      },
+      updateNode: (nodeId: NodeId, updates: Partial<PageNode>) => {
+        store.getState().updateNode(nodeId, updates)
+        const newDoc = store.getState().document
         config.onChange?.(newDoc)
       },
-      [state.document, config.onChange],
-    ),
-    moveNode: useCallback(
-      (nodeId: NodeId, targetParentId: NodeId, index: number) => {
-        const newDoc = JSON.parse(JSON.stringify(state.document))
-        const node = newDoc.nodes[nodeId]
-        const oldParentId = node.parentId
-
-        if (oldParentId && newDoc.nodes[oldParentId]) {
-          newDoc.nodes[oldParentId].children = newDoc.nodes[oldParentId].children.filter(
-            (id: string) => id !== nodeId,
-          )
-        }
-
-        node.parentId = targetParentId
-        const targetParent = newDoc.nodes[targetParentId]
-        if (targetParent) {
-          targetParent.children.splice(index, 0, nodeId)
-        }
-
-        dispatch({ type: 'UPDATE_DOCUMENT', document: newDoc })
+      addNode: (node: PageNode, parentId: NodeId, index?: number) => {
+        store.getState().addNode(parentId, node, index)
+        const newDoc = store.getState().document
         config.onChange?.(newDoc)
       },
-      [state.document, config.onChange],
-    ),
-    undo: () => console.log('Undo not implemented'),
-    redo: () => console.log('Redo not implemented'),
-    save: () => console.log('Save triggered'),
-  }
+      removeNode: (nodeId: NodeId) => {
+        store.getState().removeNode(nodeId)
+        const newDoc = store.getState().document
+        config.onChange?.(newDoc)
+      },
+      moveNode: (nodeId: NodeId, targetParentId: NodeId, index: number) => {
+        store.getState().moveNode(nodeId, targetParentId, index)
+        const newDoc = store.getState().document
+        config.onChange?.(newDoc)
+      },
+      undo: () => {
+        store.getState().undo()
+        const newDoc = store.getState().document
+        config.onChange?.(newDoc)
+      },
+      redo: () => {
+        store.getState().redo()
+        const newDoc = store.getState().document
+        config.onChange?.(newDoc)
+      },
+      save: () => {
+        const doc = store.getState().document
+        config.onSave?.(doc)
+      },
+      copySelected: () => {
+        store.getState().copySelected()
+      },
+      pasteNodes: (targetParentId: NodeId) => {
+        store.getState().pasteNodes(targetParentId)
+        const newDoc = store.getState().document
+        config.onChange?.(newDoc)
+      },
+    }),
+    [store, config],
+  )
 
-  return <EditorContext.Provider value={{ ...state, actions }}>{children}</EditorContext.Provider>
+  const editorState: EditorState = useMemo(
+    () => ({
+      document: docState.document,
+      selectedNodeIds: docState.selectedNodeIds,
+      hoveredNodeId: docState.hoveredNodeId,
+      mode: uiState.mode,
+      viewport: uiState.viewport,
+      zoom: uiState.zoom,
+      panels: uiState.panels,
+      componentMap,
+      componentRenderers,
+      canUndo: docState.undoStack.length > 0,
+      canRedo: docState.redoStack.length > 0,
+    }),
+    [docState, uiState, componentMap, componentRenderers],
+  )
+
+  const contextValue: EditorContextValue = useMemo(
+    () => ({ ...editorState, actions }),
+    [editorState, actions],
+  )
+
+  return <EditorContext.Provider value={contextValue}>{children}</EditorContext.Provider>
 }
 
 export const useEditor = () => {

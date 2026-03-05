@@ -18,5 +18,7 @@ export type {
   PageNode,
   NodeId,
   ComponentDefinition,
+  ComponentRendererMap,
   PropSchema,
 } from './types'
+export { generateHtml, exportToHtml } from './utils/export-html'
